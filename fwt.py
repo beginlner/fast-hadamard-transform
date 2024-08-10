@@ -2,7 +2,7 @@ import torch
 from fast_hadamard_transform.fast_hadamard_transform_interface import fast_hadamard_transform_cuda
 
 N = 12
-M = 7
+M = 4
 DIM = N * (2 ** M)
 BATCH = 3 * 4096 * 128
 FUNC = getattr(fast_hadamard_transform_cuda, "fast_hadamard_transform" + (f"_{N}N" if N > 1 else ""))

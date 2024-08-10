@@ -125,14 +125,15 @@ __device__ __forceinline__ void hadamard_mult_warp(float x[kNChunks][kNItems]) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <int kNChunks, int kNElts, typename input_t>
+template <int kNChunks, int kNElts, typename input_t, int kNThreads>
 inline __device__ void load_input(input_t *x, float x_vals[kNChunks][kNElts], int dim) {
     using vec_t = typename BytesToType<sizeof(input_t) * kNElts>::Type;
     input_t x_vals_load[kNChunks][kNElts] = {0};
     #pragma unroll
     for (int c = 0; c < kNChunks; ++c) {
-        if ((c * blockDim.x + threadIdx.x) * kNElts < dim) {
-            reinterpret_cast<vec_t*>(x_vals_load)[c] = reinterpret_cast<const vec_t*>(x)[c * blockDim.x + threadIdx.x];
+        int index = c * kNThreads + threadIdx.x % kNThreads;
+        if (index * kNElts < dim) {
+            reinterpret_cast<vec_t*>(x_vals_load)[c] = reinterpret_cast<const vec_t*>(x)[index];
         }
     }
     #pragma unroll
@@ -143,7 +144,7 @@ inline __device__ void load_input(input_t *x, float x_vals[kNChunks][kNElts], in
 }
 
 
-template <int kNChunks, int kNElts, typename output_t>
+template <int kNChunks, int kNElts, typename output_t, int kNThreads>
 inline __device__ void store_output(output_t *out, float out_vals[kNChunks][kNElts], int dim, float scale=1.f) {
     using vec_t = typename BytesToType<sizeof(output_t) * kNElts>::Type;
     output_t out_vals_store[kNChunks][kNElts];
@@ -154,8 +155,9 @@ inline __device__ void store_output(output_t *out, float out_vals[kNChunks][kNEl
     }
     #pragma unroll
     for (int c = 0; c < kNChunks; ++c) {
-        if ((c * blockDim.x + threadIdx.x) * kNElts < dim) {
-            reinterpret_cast<vec_t*>(out)[c * blockDim.x + threadIdx.x] = reinterpret_cast<const vec_t*>(out_vals_store)[c];
+        int index = c * kNThreads + threadIdx.x % kNThreads;
+        if (index * kNElts < dim) {
+            reinterpret_cast<vec_t*>(out)[index] = reinterpret_cast<const vec_t*>(out_vals_store)[c];
         }
     }
 }

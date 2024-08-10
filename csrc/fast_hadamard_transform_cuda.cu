@@ -31,7 +31,7 @@ struct fast_hadamard_transform_kernel_traits {
     static constexpr int kSmemExchangeSize = std::min(N * 4, 32 * 1024);
     static constexpr int kNExchangeRounds = N * 4 / kSmemExchangeSize;
     static_assert(kNExchangeRounds * kSmemExchangeSize == N * 4);
-    static constexpr int kSmemSize = kSmemExchangeSize;
+    static constexpr int kSmemSize = kNThreads > 32 ? kSmemExchangeSize : 0;
 };
 
 template<int kNThreads_, int kLogN_, typename input_t_>
@@ -54,7 +54,7 @@ struct fast_hadamard_transform_12N_kernel_traits {
     static constexpr int kSmemExchangeSize = std::min(N * 4, 24 * 1024);
     static constexpr int kNExchangeRounds = N * 4 / kSmemExchangeSize;
     static_assert(kNExchangeRounds * kSmemExchangeSize == N * 4);
-    static constexpr int kSmemSize = kSmemExchangeSize;
+    static constexpr int kSmemSize = kNThreads > 32 ? kSmemExchangeSize : 0;
 };
 
 template<int kNThreads_, int kLogN_, typename input_t_>
@@ -77,7 +77,7 @@ struct fast_hadamard_transform_20N_kernel_traits {
     static constexpr int kSmemExchangeSize = std::min(N * 4, 40 * 1024);
     static constexpr int kNExchangeRounds = N * 4 / kSmemExchangeSize;
     static_assert(kNExchangeRounds * kSmemExchangeSize == N * 4);
-    static constexpr int kSmemSize = kSmemExchangeSize;
+    static constexpr int kSmemSize = kNThreads > 32 ? kSmemExchangeSize : 0;
 };
 
 template<int kNThreads_, int kLogN_, typename input_t_>
@@ -100,7 +100,7 @@ struct fast_hadamard_transform_28N_kernel_traits {
     static constexpr int kSmemExchangeSize = std::min(N * 4, 28 * 1024);
     static constexpr int kNExchangeRounds = N * 4 / kSmemExchangeSize;
     static_assert(kNExchangeRounds * kSmemExchangeSize == N * 4);
-    static constexpr int kSmemSize = kSmemExchangeSize;
+    static constexpr int kSmemSize = kNThreads > 32 ? kSmemExchangeSize : 0;
 };
 
 template<int kNThreads_, int kLogN_, typename input_t_>
@@ -123,7 +123,7 @@ struct fast_hadamard_transform_40N_kernel_traits {
     static constexpr int kSmemExchangeSize = std::min(N * 4, 40 * 1024);
     static constexpr int kNExchangeRounds = N * 4 / kSmemExchangeSize;
     static_assert(kNExchangeRounds * kSmemExchangeSize == N * 4);
-    static constexpr int kSmemSize = kSmemExchangeSize;
+    static constexpr int kSmemSize = kNThreads > 32 ? kSmemExchangeSize : 0;
 };
 
 template <int kNChunks>
@@ -151,7 +151,7 @@ __device__ __forceinline__ void hadamard_mult_thread_chunk_40(float x[kNChunks][
 }
 
 template<typename Ktraits>
-__global__ __launch_bounds__(Ktraits::kNThreads)
+__global__ __launch_bounds__(std::max(Ktraits::kNThreads, 32))
 void fast_hadamard_transform_kernel(HadamardParamsBase params) {
     constexpr int kNThreads = Ktraits::kNThreads;
     constexpr int kNElts = Ktraits::kNElts;
@@ -178,21 +178,23 @@ void fast_hadamard_transform_kernel(HadamardParamsBase params) {
     constexpr int kNExchanges = kNChunks / kChunksPerExchange;
     static_assert(kNExchanges * kChunksPerExchange == kNChunks);
 
-    // Shared memory.
-    extern __shared__ char smem_[];
-    vec_t *smem_exchange = reinterpret_cast<vec_t *>(smem_);
-
-    const int batch_id = blockIdx.x;
+    constexpr int num_batch_per_block = std::max(32 / kNThreads, 1);
+    const int batch_id = blockIdx.x * num_batch_per_block + threadIdx.x / kNThreads;
     input_t *x = reinterpret_cast<input_t *>(params.x_ptr) + batch_id * params.x_batch_stride;
     input_t *out = reinterpret_cast<input_t *>(params.out_ptr) + batch_id * params.out_batch_stride;
 
     float x_vals[kNChunks][kNElts];
-    load_input<kNChunks, kNElts, input_t>(x, x_vals, params.dim);
+    if (batch_id < params.batch) {
+        load_input<kNChunks, kNElts, input_t, kNThreads>(x, x_vals, params.dim);
+    }
 
     hadamard_mult_thread<kLogNElts, kNChunks>(x_vals);
     hadamard_mult_warp<kLogWarpSize, 0, kNChunks, kNElts>(x_vals);
 
     if constexpr (kNWarps > 1) {
+        // Shared memory.
+        extern __shared__ char smem_[];
+        vec_t *smem_exchange = reinterpret_cast<vec_t *>(smem_);
         exchange_smem_pre<kNChunks, kChunksPerExchange, kNElts, kWarpSize, kNWarps, true, vec_t>(x_vals, smem_exchange);
         hadamard_mult_warp<kLogNWarps, 0, kNChunks, kNElts>(x_vals);
         exchange_smem_pre<kNChunks, kChunksPerExchange, kNElts, kWarpSize, kNWarps, false, vec_t>(x_vals, smem_exchange);
@@ -225,20 +227,23 @@ void fast_hadamard_transform_kernel(HadamardParamsBase params) {
         }
     }
 
-    store_output<kNChunks, kNElts, input_t>(out, x_vals, params.dim, params.scale);
+    if (batch_id < params.batch) {
+        store_output<kNChunks, kNElts, input_t, kNThreads>(out, x_vals, params.dim, params.scale);
+    }
 }
 
 template<int kNThreads, int kLogN, typename input_t>
 void fast_hadamard_transform_launch(HadamardParamsBase &params, cudaStream_t stream) {
     using Ktraits = fast_hadamard_transform_kernel_traits<kNThreads, kLogN, input_t>;
     constexpr int kSmemSize = Ktraits::kSmemSize;
-    dim3 grid(params.batch);
+    constexpr int block = std::max(kNThreads, 32);
+    dim3 grid((params.batch - 1) / (block / kNThreads) + 1);
     auto kernel = &fast_hadamard_transform_kernel<Ktraits>;
     if (kSmemSize >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemSize));
         }
-    kernel<<<grid, Ktraits::kNThreads, kSmemSize, stream>>>(params);
+    kernel<<<grid, block, kSmemSize, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -277,13 +282,14 @@ template<int kNThreads, int kLogN, typename input_t>
 void fast_hadamard_transform_12N_launch(HadamardParamsBase &params, cudaStream_t stream) {
     using Ktraits = fast_hadamard_transform_12N_kernel_traits<kNThreads, kLogN, input_t>;
     constexpr int kSmemSize = Ktraits::kSmemSize;
-    dim3 grid(params.batch);
+    constexpr int block = std::max(kNThreads, 32);
+    dim3 grid((params.batch - 1) / (block / kNThreads) + 1);
     auto kernel = &fast_hadamard_transform_kernel<Ktraits>;
     if (kSmemSize >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemSize));
         }
-    kernel<<<grid, Ktraits::kNThreads, kSmemSize, stream>>>(params);
+    kernel<<<grid, block, kSmemSize, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -314,13 +320,14 @@ template<int kNThreads, int kLogN, typename input_t>
 void fast_hadamard_transform_20N_launch(HadamardParamsBase &params, cudaStream_t stream) {
     using Ktraits = fast_hadamard_transform_20N_kernel_traits<kNThreads, kLogN, input_t>;
     constexpr int kSmemSize = Ktraits::kSmemSize;
-    dim3 grid(params.batch);
+    constexpr int block = std::max(kNThreads, 32);
+    dim3 grid((params.batch - 1) / (block / kNThreads) + 1);
     auto kernel = &fast_hadamard_transform_kernel<Ktraits>;
     if (kSmemSize >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemSize));
         }
-    kernel<<<grid, Ktraits::kNThreads, kSmemSize, stream>>>(params);
+    kernel<<<grid, block, kSmemSize, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -351,13 +358,14 @@ template<int kNThreads, int kLogN, typename input_t>
 void fast_hadamard_transform_28N_launch(HadamardParamsBase &params, cudaStream_t stream) {
     using Ktraits = fast_hadamard_transform_28N_kernel_traits<kNThreads, kLogN, input_t>;
     constexpr int kSmemSize = Ktraits::kSmemSize;
-    dim3 grid(params.batch);
+    constexpr int block = std::max(kNThreads, 32);
+    dim3 grid((params.batch - 1) / (block / kNThreads) + 1);
     auto kernel = &fast_hadamard_transform_kernel<Ktraits>;
     if (kSmemSize >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemSize));
         }
-    kernel<<<grid, Ktraits::kNThreads, kSmemSize, stream>>>(params);
+    kernel<<<grid, block, kSmemSize, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -388,13 +396,14 @@ template<int kNThreads, int kLogN, typename input_t>
 void fast_hadamard_transform_40N_launch(HadamardParamsBase &params, cudaStream_t stream) {
     using Ktraits = fast_hadamard_transform_40N_kernel_traits<kNThreads, kLogN, input_t>;
     constexpr int kSmemSize = Ktraits::kSmemSize;
-    dim3 grid(params.batch);
+    constexpr int block = std::max(kNThreads, 32);
+    dim3 grid((params.batch - 1) / (block / kNThreads) + 1);
     auto kernel = &fast_hadamard_transform_kernel<Ktraits>;
     if (kSmemSize >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemSize));
         }
-    kernel<<<grid, Ktraits::kNThreads, kSmemSize, stream>>>(params);
+    kernel<<<grid, block, kSmemSize, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
