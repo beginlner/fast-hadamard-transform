@@ -291,7 +291,7 @@ template<typename input_t>
 void fast_hadamard_transform_12N_cuda(HadamardParamsBase &params, cudaStream_t stream) {
     if (params.log_N == 2) {
         fast_hadamard_transform_12N_launch<1, 2, input_t>(params, stream);
-    } else if (params.log_N == 2) {
+    } else if (params.log_N == 3) {
         fast_hadamard_transform_12N_launch<2, 3, input_t>(params, stream);
     } else if (params.log_N == 4) {
         fast_hadamard_transform_12N_launch<4, 4, input_t>(params, stream);
@@ -328,7 +328,7 @@ template<typename input_t>
 void fast_hadamard_transform_20N_cuda(HadamardParamsBase &params, cudaStream_t stream) {
     if (params.log_N == 2) {
         fast_hadamard_transform_20N_launch<1, 2, input_t>(params, stream);
-    } else if (params.log_N == 2) {
+    } else if (params.log_N == 3) {
         fast_hadamard_transform_20N_launch<2, 3, input_t>(params, stream);
     } else if (params.log_N == 4) {
         fast_hadamard_transform_20N_launch<4, 4, input_t>(params, stream);
@@ -365,7 +365,7 @@ template<typename input_t>
 void fast_hadamard_transform_28N_cuda(HadamardParamsBase &params, cudaStream_t stream) {
     if (params.log_N == 2) {
         fast_hadamard_transform_28N_launch<1, 2, input_t>(params, stream);
-    } else if (params.log_N == 2) {
+    } else if (params.log_N == 3) {
         fast_hadamard_transform_28N_launch<2, 3, input_t>(params, stream);
     } else if (params.log_N == 4) {
         fast_hadamard_transform_28N_launch<4, 4, input_t>(params, stream);
@@ -402,7 +402,7 @@ template<typename input_t>
 void fast_hadamard_transform_40N_cuda(HadamardParamsBase &params, cudaStream_t stream) {
     if (params.log_N == 2) {
         fast_hadamard_transform_40N_launch<1, 2, input_t>(params, stream);
-    } else if (params.log_N == 2) {
+    } else if (params.log_N == 3) {
         fast_hadamard_transform_40N_launch<2, 3, input_t>(params, stream);
     } else if (params.log_N == 4) {
         fast_hadamard_transform_40N_launch<4, 4, input_t>(params, stream);

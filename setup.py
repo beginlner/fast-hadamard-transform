@@ -37,7 +37,7 @@ BASE_WHEEL_URL = "https://github.com/Dao-AILab/fast-hadamard-transform/releases/
 
 # FORCE_BUILD: Force a fresh build locally, instead of attempting to find prebuilt wheels
 # SKIP_CUDA_BUILD: Intended to allow CI to use a simple `python setup.py sdist` run to copy over raw files, without any cuda compilation
-FORCE_BUILD = os.getenv("FAST_HADAMARD_TRANSFORM_FORCE_BUILD", "FALSE") == "TRUE"
+FORCE_BUILD = True
 SKIP_CUDA_BUILD = os.getenv("FAST_HADAMARD_TRANSFORM_SKIP_CUDA_BUILD", "FALSE") == "TRUE"
 # For CI, we want the option to build with C++11 ABI since the nvcr images use C++11 ABI
 FORCE_CXX11_ABI = os.getenv("FAST_HADAMARD_TRANSFORM_FORCE_CXX11_ABI", "FALSE") == "TRUE"
@@ -104,10 +104,10 @@ if not SKIP_CUDA_BUILD:
                 "Note: make sure nvcc has a supported version by running nvcc -V."
             )
 
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_70,code=sm_70")
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_80,code=sm_80")
+    # cc_flag.append("-gencode")
+    # cc_flag.append("arch=compute_70,code=sm_70")
+    # cc_flag.append("-gencode")
+    # cc_flag.append("arch=compute_80,code=sm_80")
     if bare_metal_version >= Version("11.8"):
         cc_flag.append("-gencode")
         cc_flag.append("arch=compute_90,code=sm_90")
@@ -126,10 +126,11 @@ if not SKIP_CUDA_BUILD:
                 "csrc/fast_hadamard_transform_cuda.cu",
             ],
             extra_compile_args={
-                "cxx": ["-O3"],
+                "cxx": ["-O3", "-Wno-deprecated-declarations"],
                 "nvcc": append_nvcc_threads(
                     [
                         "-O3",
+                        "-Wno-deprecated-declarations",
                         "-U__CUDA_NO_HALF_OPERATORS__",
                         "-U__CUDA_NO_HALF_CONVERSIONS__",
                         "-U__CUDA_NO_BFLOAT16_OPERATORS__",
