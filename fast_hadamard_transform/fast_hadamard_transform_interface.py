@@ -54,7 +54,7 @@ class HadamardTransform12NFn(torch.autograd.Function):
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
         return fast_hadamard_transform_cuda.fast_hadamard_transform_12N(dout, ctx._hadamard_transform_scale), None
-    
+
 
 def hadamard_transform_12N(x, scale=1.0):
     """
@@ -70,7 +70,6 @@ def hadamard_transform_12N(x, scale=1.0):
     return HadamardTransform12NFn.apply(x, scale)
 
 
-
 class HadamardTransform20NFn(torch.autograd.Function):
 
     @staticmethod
@@ -80,6 +79,7 @@ class HadamardTransform20NFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout):
+        assert False, " The Hadamard transform matrix is not symmetric."
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
         return fast_hadamard_transform_cuda.fast_hadamard_transform_20N(dout, ctx._hadamard_transform_scale), None
@@ -108,6 +108,7 @@ class HadamardTransform28NFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout):
+        assert False, " The Hadamard transform matrix is not symmetric."
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
         return fast_hadamard_transform_cuda.fast_hadamard_transform_28N(dout, ctx._hadamard_transform_scale), None
@@ -136,9 +137,11 @@ class HadamardTransform40NFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout):
+        assert False, " The Hadamard transform matrix is not symmetric."
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
         return fast_hadamard_transform_cuda.fast_hadamard_transform_40N(dout, ctx._hadamard_transform_scale), None
+
 
 def hadamard_transform_40N(x, scale=1.0):
     """
@@ -152,6 +155,7 @@ def hadamard_transform_40N(x, scale=1.0):
     If dim is not 40 * a power of 2, we implicitly pad x with zero so that dim is 40 * the next power of 2.
     """
     return HadamardTransform40NFn.apply(x, scale)
+
 
 def hadamard_transform_ref(x, scale=1.0):
     """
