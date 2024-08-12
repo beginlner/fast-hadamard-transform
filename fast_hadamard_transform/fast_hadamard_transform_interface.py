@@ -45,29 +45,32 @@ def hadamard_transform(x, scale=1.0):
 class HadamardTransform12NFn(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x, scale=1.0):
+    def forward(ctx, x, scale=1.0, out_format=""):
         ctx._hadamard_transform_scale = scale
-        return fast_hadamard_transform_cuda.fast_hadamard_transform_12N(x, scale)
+        ret = fast_hadamard_transform_cuda.fast_hadamard_transform_12N(x, scale, out_format)
+        return ret if out_format == "e4m3_pt" else ret[0]
 
     @staticmethod
-    def backward(ctx, dout):
+    def backward(ctx, dout, *args):
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
-        return fast_hadamard_transform_cuda.fast_hadamard_transform_12N(dout, ctx._hadamard_transform_scale), None
+        return fast_hadamard_transform_cuda.fast_hadamard_transform_12N(dout, ctx._hadamard_transform_scale, ""), None, None
 
 
-def hadamard_transform_12N(x, scale=1.0):
+def hadamard_transform_12N(x, scale=1.0, out_format=""):
     """
     Arguments:
         x: (..., dim)
         scale: float. Multiply the output by this number.
+        out_format: str. "" or "e4m3_pt" or "e4m3_pt_simulated".
     Returns:
         out: (..., dim)
+        scale_inv [optional]: (...)
 
     Multiply each row of x by the Hadamard transform matrix, where dim = 12 * power of 2.
     If dim is not 12 * a power of 2, we implicitly pad x with zero so that dim is 12 * the next power of 2.
     """
-    return HadamardTransform12NFn.apply(x, scale)
+    return HadamardTransform12NFn.apply(x, scale, out_format)
 
 
 class HadamardTransform20NFn(torch.autograd.Function):

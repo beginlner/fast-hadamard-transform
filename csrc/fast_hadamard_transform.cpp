@@ -6,6 +6,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/extension.h>
 #include <vector>
+#include <string>
 
 #include "fast_hadamard_transform.h"
 
@@ -39,6 +40,13 @@ void fast_hadamard_transform_28N_cuda(HadamardParamsBase &params, cudaStream_t s
 
 template<typename input_t>
 void fast_hadamard_transform_40N_cuda(HadamardParamsBase &params, cudaStream_t stream);
+
+OutCastingType get_out_casting_type(std::string out_format) {
+    if (out_format == "") return OutCastingType::out;
+    if (out_format == "e4m3_pt") return OutCastingType::e4m3;
+    if (out_format == "e4m3_pt_simulated") return OutCastingType::out_simulated_with_e4m3;
+    AT_ERROR("Only '' or 'e4m3_pt' or 'e4m3_pt_simulated' out format is supported");
+}
 
 void set_hadamard_params(HadamardParamsBase &params,
                          // sizes
@@ -112,8 +120,8 @@ fast_hadamard_transform(at::Tensor &x, float scale) {
     return out.reshape(shapes_og);
 }
 
-at::Tensor
-fast_hadamard_transform_12N(at::Tensor &x, float scale) {
+std::tuple<at::Tensor, at::Tensor>
+fast_hadamard_transform_12N(at::Tensor &x, float scale, std::string out_format) {
     auto input_type = x.scalar_type();
     TORCH_CHECK(input_type == at::ScalarType::Float || input_type == at::ScalarType::Half || input_type == at::ScalarType::BFloat16);
 
@@ -137,10 +145,22 @@ fast_hadamard_transform_12N(at::Tensor &x, float scale) {
     TORCH_CHECK(dim % (4 * 12) == 0, "fast_hadamard_transform_12N only supports hidden dimension divisible by 48 for now");
     TORCH_CHECK(dim <= 12 * 1024, "fast_hadamard_transform_12N only supports hidden dimension at most 12288 for now");
 
-    at::Tensor out = torch::empty_like(x);
+    auto out_casting_type = get_out_casting_type(out_format);
+    at::Tensor out;
+    at::Tensor scale_inv;
+    if (out_casting_type == OutCastingType::e4m3) {
+        out = torch::empty_like(x, x.options().dtype(at::kFloat8_e4m3fn));
+        scale_inv = torch::empty({batch_size}, x.options().dtype(at::kFloat));
+    } else {
+        out = torch::empty_like(x);
+    }
 
     HadamardParamsBase params;
     set_hadamard_params(params, batch_size, dim, 12, x, out, scale);
+    params.out_casting_type = out_casting_type;
+    if (out_casting_type == OutCastingType::e4m3) {
+        params.scale_inv_ptr = scale_inv.data_ptr();
+    }
 
     // Otherwise the kernel will be launched from cuda:0 device
     // Cast to char to avoid compiler warning about narrowing
@@ -152,7 +172,7 @@ fast_hadamard_transform_12N(at::Tensor &x, float scale) {
     if (dim_og % (4 * 12) != 0) {
         out = out.index({torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, dim_og)});
     }
-    return out.reshape(shapes_og);
+    return {out.reshape(shapes_og), scale_inv};
 }
 
 at::Tensor

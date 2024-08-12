@@ -150,7 +150,7 @@ __device__ __forceinline__ void hadamard_mult_thread_chunk_40(float x[kNChunks][
     for (int c = 0; c < kNChunks; ++c) { hadamard_mult_thread_40(x[c]); }
 }
 
-template<typename Ktraits>
+template<typename Ktraits, OutCastingType OutCasting=OutCastingType::out>
 __global__ __launch_bounds__(std::max(Ktraits::kNThreads, 32))
 void fast_hadamard_transform_kernel(HadamardParamsBase params) {
     constexpr int kNThreads = Ktraits::kNThreads;
@@ -159,6 +159,7 @@ void fast_hadamard_transform_kernel(HadamardParamsBase params) {
     constexpr int kNExchangeRounds = Ktraits::kNExchangeRounds;
     constexpr int kNChunks = Ktraits::kNChunks;
     using input_t = typename Ktraits::input_t;
+    using output_t = std::conditional_t<OutCasting == OutCastingType::e4m3, uint8_t, typename Ktraits::input_t>;
     using vec_t = typename Ktraits::vec_t;
 
     constexpr int kLogNElts = cilog2(Ktraits::kNElts);
@@ -181,7 +182,8 @@ void fast_hadamard_transform_kernel(HadamardParamsBase params) {
     constexpr int num_batch_per_block = std::max(32 / kNThreads, 1);
     const int batch_id = blockIdx.x * num_batch_per_block + threadIdx.x / kNThreads;
     input_t *x = reinterpret_cast<input_t *>(params.x_ptr) + batch_id * params.x_batch_stride;
-    input_t *out = reinterpret_cast<input_t *>(params.out_ptr) + batch_id * params.out_batch_stride;
+    output_t *out = reinterpret_cast<output_t *>(params.out_ptr) + batch_id * params.out_batch_stride;
+    float *Scale_Inv = reinterpret_cast<float *>(params.scale_inv_ptr) + batch_id;
 
     float x_vals[kNChunks][kNElts];
     if (batch_id < params.batch) {
@@ -227,8 +229,52 @@ void fast_hadamard_transform_kernel(HadamardParamsBase params) {
         }
     }
 
+    float out_scale = params.scale;
+    #pragma unroll
+    for (int c = 0; c < kNChunks; ++c) {
+        #pragma unroll
+        for (int i = 0; i < kNElts; ++i) { x_vals[c][i] = x_vals[c][i] * out_scale; }
+    }
+
+    if (OutCasting != OutCastingType::out) {
+        float amax = FP8_AMAX_MARGIN;
+        // Thread amax.
+        #pragma unroll
+        for (int c = 0; c < kNChunks; ++c) {
+            #pragma unroll
+            for (int i = 0; i < kNElts; ++i) { amax = std::max(amax, std::abs(x_vals[c][i])); }
+        }
+        // Global amax.
+        #pragma unroll
+        for (int lane_mask = kNThreads / 2; lane_mask > 0; lane_mask /= 2) {
+            amax = fmaxf(amax, __shfl_xor_sync(0xffffffff, amax, lane_mask));
+        }
+        // Scale and Scale_Inv.
+        float scale = float8e4nv_max / amax;
+        float scale_inv = amax / float8e4nv_max;
+        if (OutCasting == OutCastingType::e4m3 and batch_id < params.batch and threadIdx.x % kNThreads == 0) {
+            *Scale_Inv = scale_inv;
+        }
+        // Cast to e4m3.
+        uint8_t x_fp8[kNChunks][kNElts];  // fp8 storage.
+        #pragma unroll
+        for (int c = 0; c < kNChunks; ++c) {
+            #pragma unroll
+            for (int i = 0; i < kNElts; ++i) { x_vals[c][i] *= scale; }
+            #pragma unroll
+            for (int i = 0; i < kNElts; i += 2) {
+                *reinterpret_cast<__nv_fp8x2_e4m3 *>(&x_fp8[c][i]) = __nv_fp8x2_e4m3(*reinterpret_cast<float2 *>(&x_vals[c][i]));
+            }
+        }
+        // Store outputs.
+        if (batch_id < params.batch) {
+            store_output<kNChunks, kNElts, output_t, kNThreads, uint8_t, OutCasting>(out, x_fp8, params.dim, scale_inv);
+        }
+        return;
+    }
+
     if (batch_id < params.batch) {
-        store_output<kNChunks, kNElts, input_t, kNThreads>(out, x_vals, params.dim, params.scale);
+        store_output<kNChunks, kNElts, output_t, kNThreads>(out, x_vals, params.dim);
     }
 }
 
@@ -284,13 +330,15 @@ void fast_hadamard_transform_12N_launch(HadamardParamsBase &params, cudaStream_t
     constexpr int kSmemSize = Ktraits::kSmemSize;
     constexpr int block = std::max(kNThreads, 32);
     dim3 grid((params.batch - 1) / (block / kNThreads) + 1);
-    auto kernel = &fast_hadamard_transform_kernel<Ktraits>;
+    OUT_CASTING_TYPE_SWITCH(params.out_casting_type, [&] {
+    auto kernel = &fast_hadamard_transform_kernel<Ktraits, OutCasting>;
     if (kSmemSize >= 48 * 1024) {
         C10_CUDA_CHECK(cudaFuncSetAttribute(
             kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemSize));
         }
     kernel<<<grid, block, kSmemSize, stream>>>(params);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
+    });
 }
 
 template<typename input_t>

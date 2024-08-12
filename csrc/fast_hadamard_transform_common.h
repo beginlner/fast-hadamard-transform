@@ -6,8 +6,16 @@
 
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
+#include <cuda_fp8.h>
+
+#include "fast_hadamard_transform.h"
 
 #define FULL_MASK 0xffffffff
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+constexpr float FP8_AMAX_MARGIN = 1e-4;
+constexpr float float8e4nv_max = 448;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -144,14 +152,21 @@ inline __device__ void load_input(input_t *x, float x_vals[kNChunks][kNElts], in
 }
 
 
-template <int kNChunks, int kNElts, typename output_t, int kNThreads>
-inline __device__ void store_output(output_t *out, float out_vals[kNChunks][kNElts], int dim, float scale=1.f) {
+template <int kNChunks, int kNElts, typename output_t, int kNThreads, typename element_t=float, OutCastingType OutCasting=OutCastingType::out>
+inline __device__ void store_output(output_t *out, element_t out_vals[kNChunks][kNElts], int dim, float scale_inv=1.f) {
     using vec_t = typename BytesToType<sizeof(output_t) * kNElts>::Type;
     output_t out_vals_store[kNChunks][kNElts];
     #pragma unroll
     for (int c = 0; c < kNChunks; ++c) {
         #pragma unroll
-        for (int i = 0; i < kNElts; ++i) { out_vals_store[c][i] = out_vals[c][i] * scale; }
+        for (int i = 0; i < kNElts; ++i) {
+            if (OutCasting == OutCastingType::out_simulated_with_e4m3) {
+                float ele = static_cast<float>(*reinterpret_cast<__nv_fp8_e4m3 *>(&out_vals[c][i]));
+                out_vals_store[c][i] = static_cast<output_t>(ele * scale_inv);
+            } else {
+                out_vals_store[c][i] = static_cast<output_t>(out_vals[c][i]);
+            }
+        }
     }
     #pragma unroll
     for (int c = 0; c < kNChunks; ++c) {
