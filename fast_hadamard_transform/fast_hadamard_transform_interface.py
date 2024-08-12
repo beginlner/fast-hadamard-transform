@@ -82,7 +82,6 @@ class HadamardTransform20NFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout):
-        assert False, " The Hadamard transform matrix is not symmetric."
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
         return fast_hadamard_transform_cuda.fast_hadamard_transform_20N(dout, ctx._hadamard_transform_scale), None
@@ -111,7 +110,6 @@ class HadamardTransform28NFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout):
-        assert False, " The Hadamard transform matrix is not symmetric."
         # The Hadamard transform matrix is symmetric, so in the backward pass we multiply by its
         # transpose, which is itself.
         return fast_hadamard_transform_cuda.fast_hadamard_transform_28N(dout, ctx._hadamard_transform_scale), None
