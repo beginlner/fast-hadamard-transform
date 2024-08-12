@@ -150,7 +150,7 @@ fast_hadamard_transform_12N(at::Tensor &x, float scale, std::string out_format) 
     at::Tensor scale_inv;
     if (out_casting_type == OutCastingType::e4m3) {
         out = torch::empty_like(x, x.options().dtype(at::kFloat8_e4m3fn));
-        scale_inv = torch::empty({batch_size}, x.options().dtype(at::kFloat));
+        scale_inv = torch::empty(shapes_og.slice(0, shapes_og.size() - 1), x.options().dtype(at::kFloat));
     } else {
         out = torch::empty_like(x);
     }
