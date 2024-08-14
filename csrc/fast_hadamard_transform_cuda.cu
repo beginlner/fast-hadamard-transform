@@ -150,6 +150,19 @@ __device__ __forceinline__ void hadamard_mult_thread_chunk_40(float x[kNChunks][
     for (int c = 0; c < kNChunks; ++c) { hadamard_mult_thread_40(x[c]); }
 }
 
+__device__ __forceinline__ float pow2(int x) {
+    return x >= 0 ? static_cast<float>(1 << x) : 1.0f / static_cast<float>(1 << (-x));
+}
+
+__device__  __forceinline__ void get_scale_and_inv(float finfo_amax, float amax, float& scale, float& scale_inv, bool round_scale) {
+    if (round_scale) {
+        auto exp_scale = static_cast<int>(floorf(log2f(finfo_amax / amax)));
+        scale = pow2(exp_scale), scale_inv = pow2(-exp_scale);
+    } else {
+        scale = finfo_amax / amax, scale_inv = amax / finfo_amax;
+    }
+}
+
 template<typename Ktraits, OutCastingType OutCasting=OutCastingType::out>
 __global__ __launch_bounds__(std::max(Ktraits::kNThreads, 32))
 void fast_hadamard_transform_kernel(HadamardParamsBase params) {
@@ -250,8 +263,8 @@ void fast_hadamard_transform_kernel(HadamardParamsBase params) {
             amax = fmaxf(amax, __shfl_xor_sync(0xffffffff, amax, lane_mask));
         }
         // Scale and Scale_Inv.
-        float scale = float8e4nv_max / amax;
-        float scale_inv = amax / float8e4nv_max;
+        float scale, scale_inv;
+        get_scale_and_inv(float8e4nv_max, amax, scale, scale_inv, params.round_scale);
         if (OutCasting == OutCastingType::e4m3 and batch_id < params.batch and threadIdx.x % kNThreads == 0) {
             *Scale_Inv = scale_inv;
         }

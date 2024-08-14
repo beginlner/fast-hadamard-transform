@@ -7,9 +7,9 @@ DIM = N * (2 ** M)
 BATCH = 3 * 4096 * 128
 FUNC = getattr(fast_hadamard_transform_interface, "hadamard_transform" + (f"_{N}N" if N > 1 else ""))
 I = torch.eye(DIM, device="cuda")
-X = FUNC(I, 1.0, "e4m3_pt_simulated")
+X = FUNC(I, 1.0, "e4m3_pt_simulated", True)
 print(X)
-Y = FUNC(X, 1.0, "e4m3_pt")[0].float()
+Y = FUNC(X, 1.0, "e4m3_pt", True)[0].float()
 print(Y)
 print(DIM, len(Y.nonzero().tolist()))
 
@@ -19,9 +19,9 @@ with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CUDA]) a
     for i in range(10):
         FUNC(X, 1.0, "")
     for i in range(10):
-        FUNC(X, 1.0, "e4m3_pt")
+        FUNC(X, 1.0, "e4m3_pt", True)
     for i in range(10):
-        FUNC(X, 1.0, "e4m3_pt_simulated")
+        FUNC(X, 1.0, "e4m3_pt_simulated", True)
     for i in range(10):
         X.clone()
     for i in range(10):

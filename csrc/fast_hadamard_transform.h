@@ -46,4 +46,5 @@ struct HadamardParamsBase {
     void *__restrict__ scale_inv_ptr;
 
     OutCastingType out_casting_type;
+    bool round_scale;
 };

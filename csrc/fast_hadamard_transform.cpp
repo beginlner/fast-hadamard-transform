@@ -121,7 +121,7 @@ fast_hadamard_transform(at::Tensor &x, float scale) {
 }
 
 std::tuple<at::Tensor, at::Tensor>
-fast_hadamard_transform_12N(at::Tensor &x, float scale, std::string out_format) {
+fast_hadamard_transform_12N(at::Tensor &x, float scale, std::string out_format, bool round_scale) {
     auto input_type = x.scalar_type();
     TORCH_CHECK(input_type == at::ScalarType::Float || input_type == at::ScalarType::Half || input_type == at::ScalarType::BFloat16);
 
@@ -158,6 +158,7 @@ fast_hadamard_transform_12N(at::Tensor &x, float scale, std::string out_format) 
     HadamardParamsBase params;
     set_hadamard_params(params, batch_size, dim, 12, x, out, scale);
     params.out_casting_type = out_casting_type;
+    params.round_scale = round_scale;
     if (out_casting_type == OutCastingType::e4m3) {
         params.scale_inv_ptr = scale_inv.data_ptr();
     }
